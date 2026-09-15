@@ -43,7 +43,7 @@ program.command("init").description("Register current repository").action(async 
 const projects = program.command("projects").description("List projects").action(async () => {
   const o = program.opts(); output(await prisma.project.findMany({ orderBy: { name: "asc" } }), o.json);
 });
-projects.command("scan").action(async () => output(await scanProjects(prisma, config.projectRoots, config.home), program.opts().json));
+projects.command("scan").action(async () => output(await scanProjects(prisma, config.projectRoots, config.home, config.softwareRoot), program.opts().json));
 program.command("analyze").action(async () => { const o = program.opts(); output(await orchestrator.analyze(await selected(o)), o.json); });
 program.command("suggest").action(async () => { const o = program.opts(); const p = await selected(o); const proposal = await orchestrator.suggest(p); const approval = await approvals.create({ type: "PROPOSAL", projectId: p.id, proposalId: proposal.id }); output({ proposal, approvalToken: approval.callbackToken }, o.json); });
 program.command("daily").action(async () => {
@@ -71,6 +71,11 @@ program.command("approve [token]").action(async token => {
 program.command("reject [token]").action(async token => {
   const pending = token ? await prisma.approval.findUnique({ where: { callbackToken: token } }) : await prisma.approval.findFirst({ where: { status: "PENDING" }, orderBy: { createdAt: "desc" } });
   if (!pending) throw new Error("No pending approval"); output(await approvals.decide(pending.callbackToken, "cli", "REJECTED"), program.opts().json);
+});
+for (const action of ["enable", "disable"] as const) program.command(action).description(`${action} automatic daily suggestions for a project`).action(async () => {
+  const o = program.opts(); const p = await selected(o);
+  await prisma.project.update({ where: { id: p.id }, data: { autoImproveEnabled: action === "enable" } });
+  output(`Automatic improvement ${action}d for ${p.slug}.`, o.json);
 });
 for (const action of ["pause", "resume"] as const) program.command(action).action(async () => {
   const o = program.opts();

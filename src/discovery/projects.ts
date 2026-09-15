@@ -28,16 +28,19 @@ export async function registerProject(prisma: PrismaClient, candidate: string) {
   });
 }
 
-export async function scanProjects(prisma: PrismaClient, roots: string[], archivistHome: string) {
+export async function scanProjects(prisma: PrismaClient, roots: string[], archivistHome: string, softwareRoot?: string) {
   const seen = new Set<string>(), projects = [];
-  const own = await fs.realpath(archivistHome).catch(() => path.resolve(archivistHome));
+  const skip = new Set<string>([
+    await fs.realpath(archivistHome).catch(() => path.resolve(archivistHome))
+  ]);
+  if (softwareRoot) skip.add(await fs.realpath(softwareRoot).catch(() => path.resolve(softwareRoot)));
   for (const root of roots) {
     let entries: import("node:fs").Dirent[];
     try { entries = await fs.readdir(root, { withFileTypes: true }); } catch { continue; }
     for (const entry of entries.filter(x => x.isDirectory())) {
       const candidate = path.join(root, entry.name);
       const gitRoot = await findGitRoot(candidate);
-      if (!gitRoot || gitRoot === own || seen.has(gitRoot)) continue;
+      if (!gitRoot || skip.has(gitRoot) || seen.has(gitRoot)) continue;
       seen.add(gitRoot);
       projects.push(await registerProject(prisma, gitRoot));
     }
