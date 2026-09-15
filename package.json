@@ -1,0 +1,32 @@
+{
+  "name": "archivist",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "archivist": "dist/cli/index.js" },
+  "scripts": {
+    "dev": "tsx src/cli/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prisma:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "postinstall": "prisma generate"
+  },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@prisma/client": "^6.15.0",
+    "commander": "^14.0.0",
+    "dotenv": "^17.2.2",
+    "grammy": "^1.38.2",
+    "node-cron": "^4.2.1",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "prisma": "^6.15.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

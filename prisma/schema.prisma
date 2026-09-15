@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id                 String    @id @default(cuid())
+  name               String
+  slug               String    @unique
+  gitRoot            String    @unique
+  branch             String
+  technology         String
+  metadataJson       String    @default("{}")
+  autoImproveEnabled Boolean   @default(false)
+  paused             Boolean   @default(false)
+  lastAnalyzedAt     DateTime?
+  lastSessionAt      DateTime?
+  lastKnownCommit    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  sessions           Session[]
+  dailyRuns          DailyRun[]
+  proposals          Proposal[]
+  tasks              Task[]
+  approvals          Approval[]
+  gitOperations      GitOperation[]
+  externalChanges    ExternalChange[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  projectId String
+  kind      String
+  status    String
+  summary   String?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model DailyRun {
+  id                String   @id @default(cuid())
+  projectId         String
+  dateKey           String
+  status            String
+  error             String?
+  telegramMessageId String?
+  createdAt         DateTime @default(now())
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@unique([projectId, dateKey])
+}
+
+model Proposal {
+  id          String     @id @default(cuid())
+  projectId   String
+  title       String
+  summary     String
+  evidence    String
+  expected    String
+  metricsJson String
+  agentsJson  String
+  heuristic   Boolean    @default(false)
+  status      String     @default("PENDING")
+  fingerprint String
+  createdAt   DateTime   @default(now())
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks       Task[]
+  approvals   Approval[]
+  @@index([projectId, fingerprint])
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  projectId   String
+  proposalId  String
+  status      String     @default("APPROVED")
+  branch      String?
+  reportJson  String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  proposal    Proposal   @relation(fields: [proposalId], references: [id])
+  agentRuns   AgentRun[]
+  approvals   Approval[]
+}
+
+model AgentRun {
+  id         String   @id @default(cuid())
+  taskId     String
+  role       String
+  status     String
+  outputJson String?
+  error      String?
+  createdAt  DateTime @default(now())
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+}
+
+model Approval {
+  id             String   @id @default(cuid())
+  type           String
+  projectId      String
+  proposalId     String?
+  taskId         String?
+  status         String   @default("PENDING")
+  telegramUserId String?
+  callbackToken  String   @unique
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+  decidedAt      DateTime?
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  proposal       Proposal? @relation(fields: [proposalId], references: [id])
+  task           Task?    @relation(fields: [taskId], references: [id])
+  gitOperations  GitOperation[]
+}
+
+model GitOperation {
+  id         String   @id @default(cuid())
+  projectId  String
+  approvalId String
+  type       String
+  status     String
+  commitHash String?
+  error      String?
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  approval   Approval @relation(fields: [approvalId], references: [id])
+}
+
+model ScheduleSettings {
+  id           Int      @id @default(1)
+  timezone     String   @default("Asia/Kuala_Lumpur")
+  hour         Int      @default(8)
+  minute       Int      @default(0)
+  catchUp      Boolean  @default(true)
+  globalPaused Boolean  @default(false)
+  updatedAt    DateTime @updatedAt
+}
+
+model ExternalChange {
+  id         String   @id @default(cuid())
+  projectId  String
+  commitHash String
+  summary    String
+  detectedAt DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@unique([projectId, commitHash])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  actor     String
+  projectId String?
+  details   String
+  createdAt DateTime @default(now())
+}
+
+model TelegramMessage {
+  id                String   @id @default(cuid())
+  dedupeKey         String   @unique
+  telegramMessageId String?
+  chatId            String
+  kind              String
+  createdAt         DateTime @default(now())
+}
