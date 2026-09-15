@@ -52,4 +52,33 @@ export class PrivilegedGitService {
     await git(root, ["push", remote, "HEAD"]);
     await this.prisma.gitOperation.create({ data: { projectId, approvalId, type: "push", status: "SUCCEEDED" } });
   }
+
+  async publish(projectId: string, root: string, approvalId: string, opts: { message: string; base: string; title: string; body: string }) {
+    await this.requireApproval(approvalId, "COMMIT", projectId);
+    await git(root, ["add", "-A"]);
+    const pending = await git(root, ["status", "--porcelain"]);
+    if (!pending) throw new Error("Nothing to commit on the AI branch.");
+    await git(root, ["commit", "-m", opts.message]);
+    const hash = await git(root, ["rev-parse", "HEAD"]);
+    const branch = await git(root, ["branch", "--show-current"]);
+    await git(root, ["push", "-u", "origin", "HEAD"]);
+    let prUrl: string | undefined;
+    try {
+      const { createPullRequest, githubCompareUrl } = await import("./branch.js");
+      try {
+        prUrl = await createPullRequest(root, {
+          base: opts.base,
+          title: opts.title,
+          body: `${opts.body}\n\nThis PR targets \`${opts.base}\`. Archivist does not merge it. ${opts.base} / production stay unchanged until a human merges on GitHub.`
+        });
+      } catch {
+        const remote = await git(root, ["remote", "get-url", "origin"]).catch(() => "");
+        prUrl = githubCompareUrl(remote, opts.base, branch);
+      }
+    } catch {
+      /* PR helpers unavailable */
+    }
+    await this.prisma.gitOperation.create({ data: { projectId, approvalId, type: "publish", status: "SUCCEEDED", commitHash: hash } });
+    return { hash, branch, prUrl };
+  }
 }

@@ -10,3 +10,6 @@ coverage/
 # Keep memory/projects/.gitkeep tracked. A private ARCHIVIST_HOME git repo stores real history.
 memory/projects/*/
 
+# Personal Cursor rules
+.cursor/
+

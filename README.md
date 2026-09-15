@@ -83,7 +83,7 @@ Copy `.env.example` to `.env`. Never commit `.env`.
 | `ARCHIVIST_PROJECT_ROOTS` | Comma-separated directories to scan for Git repos |
 | `ARCHIVIST_HOME` | Personal instance root (memory + DB). Empty = this clone |
 | `DATABASE_URL` | Prisma CLI URL. Node overrides to `$ARCHIVIST_HOME/data/archivist.db` when left as the example |
-| `LLM_*` | OpenAI-compatible provider |
+| `LLM_*` | OpenAI-compatible provider. `LLM_TPM_LIMIT` default 200000; Archivist waits at 75% instead of 429ing |
 | `APPROVAL_TTL_HOURS` | Default 48 |
 | `SCHEDULER_CATCH_UP` | Setting exists; this MVP does not reconstruct missed days after a crash |
 
@@ -153,7 +153,7 @@ Only projects with `autoImproveEnabled=true` and `paused=false` participate. `(p
 
 Allowlisted Telegram users can `/projects`, `/enable`, `/disable`, `/now`, `/status`, `/history`, `/pause`, `/resume`. Approval buttons use short server-side tokens (not trusted payloads). Unauthorized users are denied.
 
-Automatic improvement means: morning suggestion → human approve → agents implement. It never means automatic commit or push.
+Automatic improvement means: morning suggestion → human selects recs → Apply → agents implement accepted recs on one branch from `main`/`master` → one approval opens a pull request. It never merges into production.
 
 ## Git safety
 
@@ -164,11 +164,11 @@ Structural, not prompt-only:
 - File tools cannot leave the target repository
 - `PrivilegedGitService` requires a valid, unexpired, already-approved record
 
-Agents work on `ai/task-<id>-<slug>` and must not edit `main`/`master` in place.
+Agents create `ai/<project>/<title>-<id>` (or `ai/<project>/N-improvements-<id>` for a batch) from `main`/`master` and must not edit those branches in place. Approving a finished task commits, pushes, and opens one PR; it does not merge.
 
 ## Agents
 
-Handbooks in `prompts/`: Lead, Product, UX, Frontend, Backend, QA, Reviewer. Runtime: allowlisted tools only, 12-iteration cap, timeout, Zod-validated output. No eval of model-generated code.
+Handbooks in `prompts/`. Implementation uses one backend pass (not four agents per rec), allowlisted tools, 8-iteration cap, truncated tool output, and a tokens-per-minute budget that waits instead of 429ing. Tests/lint run in Node after the model finishes.
 
 ## Testing and ops
 

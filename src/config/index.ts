@@ -17,6 +17,7 @@ const schema = z.object({
   LLM_API_KEY: z.string().optional(),
   LLM_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
   LLM_MODEL: z.string().optional(),
+  LLM_TPM_LIMIT: z.coerce.number().positive().default(200_000),
   APPROVAL_TTL_HOURS: z.coerce.number().positive().default(48),
   SCHEDULER_CATCH_UP: z.string().default("true")
 });
@@ -60,11 +61,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
     softwareRoot,
     home,
     databaseUrl,
-    telegramToken: value.TELEGRAM_BOT_TOKEN,
+    telegramToken: value.TELEGRAM_BOT_TOKEN?.trim(),
     allowedUserIds: new Set(value.TELEGRAM_ALLOWED_USER_IDS.split(",").map(x => x.trim()).filter(Boolean)),
     timezone: value.ARCHIVIST_TIMEZONE,
     projectRoots: value.ARCHIVIST_PROJECT_ROOTS.split(",").map(x => x.trim()).filter(Boolean),
-    llm: { provider: value.LLM_PROVIDER, apiKey: value.LLM_API_KEY, baseUrl: value.LLM_BASE_URL, model: value.LLM_MODEL },
+    llm: { provider: value.LLM_PROVIDER, apiKey: value.LLM_API_KEY?.trim(), baseUrl: value.LLM_BASE_URL, model: value.LLM_MODEL?.trim(), tpmLimit: value.LLM_TPM_LIMIT },
     approvalTtlHours: value.APPROVAL_TTL_HOURS,
     catchUp: value.SCHEDULER_CATCH_UP.toLowerCase() !== "false"
   };

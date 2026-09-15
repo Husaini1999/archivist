@@ -4,6 +4,7 @@ import path from "node:path";
 import { db, closeDb } from "../repositories/db.js";
 import { loadConfig } from "../config/index.js";
 import { findGitRoot, git, PrivilegedGitService } from "../git/git.js";
+import { commitMessage } from "../git/message.js";
 import { registerProject, scanProjects } from "../discovery/projects.js";
 import { MemoryService } from "../memory/memory.js";
 import { ApprovalService } from "../approvals/approval.js";
@@ -15,7 +16,7 @@ import { TelegramService } from "../telegram/bot.js";
 const config = loadConfig(), prisma = db();
 const cliUsers = new Set([...config.allowedUserIds, "cli"]);
 const approvals = new ApprovalService(prisma, cliUsers, config.approvalTtlHours);
-const llm = config.llm.apiKey && config.llm.model ? new OpenAICompatibleProvider(config.llm.baseUrl, config.llm.apiKey, config.llm.model) : undefined;
+const llm = config.llm.apiKey && config.llm.model ? new OpenAICompatibleProvider(config.llm.baseUrl, config.llm.apiKey, config.llm.model, config.llm.tpmLimit) : undefined;
 const orchestrator = new ArchivistOrchestrator(prisma, config.home, approvals, llm, config.softwareRoot);
 const output = (value: unknown, json = false) => console.log(json ? JSON.stringify(value, null, 2) : typeof value === "string" ? value : JSON.stringify(value, null, 2));
 
@@ -45,9 +46,9 @@ const projects = program.command("projects").description("List projects").action
 });
 projects.command("scan").action(async () => output(await scanProjects(prisma, config.projectRoots, config.home, config.softwareRoot), program.opts().json));
 program.command("analyze").action(async () => { const o = program.opts(); output(await orchestrator.analyze(await selected(o)), o.json); });
-program.command("suggest").action(async () => { const o = program.opts(); const p = await selected(o); const proposal = await orchestrator.suggest(p); const approval = await approvals.create({ type: "PROPOSAL", projectId: p.id, proposalId: proposal.id }); output({ proposal, approvalToken: approval.callbackToken }, o.json); });
+program.command("suggest").action(async () => { const o = program.opts(); const p = await selected(o); const proposals = await orchestrator.suggest(p); const items = []; for (const proposal of proposals) { const approval = await approvals.create({ type: "PROPOSAL", projectId: p.id, proposalId: proposal.id }); items.push({ proposal, approvalToken: approval.callbackToken }); } output({ proposals: items }, o.json); });
 program.command("daily").action(async () => {
-  const sender: RecommendationSender = { sendProposal: async (name, p, token) => { console.log(`${name}: ${p.title}\nApprove: archivist approve ${token}`); return undefined; } };
+  const sender: RecommendationSender = { sendProposal: async (name, p, token) => { console.log(`${name}: ${p.title}\nApprove: archivist approve ${token}`); return undefined; }, sendProposals: async (name, items) => { for (const [index, item] of items.entries()) console.log(`${name} ${index + 1}. ${item.proposal.title}\nApprove: archivist approve ${item.token}`); return undefined; } };
   output(await new DailyScheduler(prisma, orchestrator, sender, config.timezone).run(), program.opts().json);
 });
 program.command("work [task]").action(async task => {
@@ -65,7 +66,7 @@ program.command("approve [token]").action(async token => {
   const decided = await approvals.decide(pending.callbackToken, "cli", "APPROVED");
   if (decided.type === "COMMIT" && decided.taskId) {
     const task = await prisma.task.findUnique({ where: { id: decided.taskId }, include: { project: true, proposal: true } });
-    if (task) output({ commit: await new PrivilegedGitService(prisma).commit(task.projectId, task.project.gitRoot, decided.id, `feat: ${task.proposal.title}`) }, program.opts().json);
+    if (task) output({ commit: await new PrivilegedGitService(prisma).commit(task.projectId, task.project.gitRoot, decided.id, commitMessage([task.proposal.title])) }, program.opts().json);
   } else output(decided, program.opts().json);
 });
 program.command("reject [token]").action(async token => {
