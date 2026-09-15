@@ -1,66 +1,111 @@
 # Archivist
 
-Archivist is a central, terminal-first AI software team for multiple existing Git repositories. It analyzes projects, stores project-specific memory in this repository, proposes improvements, requests Telegram approval, implements work on isolated branches, validates the result, and asks a human before any commit or push.
+Archivist is a terminal-first, human-governed AI software team. One installation can register many existing Git repositories, keep project memory, propose improvements, ask for Telegram approval, implement on isolated branches, run checks, and still **never commit or push without a human**.
 
-## 1. Status and MVP scope
+This repository is the **public product**. Other people should clone *this* repo. Your project history, SQLite registry, and secrets belong in a **personal instance**, not in the public tree.
 
-This MVP contains a working TypeScript CLI, Prisma/SQLite data model, repository discovery, memory service, heuristic and OpenAI-compatible analysis, agent runtime, daily scheduler, grammY bot, approval state handling, privileged Git boundary, and Vitest suite. LLM implementation requires a configured provider; offline analysis and suggestions remain deterministic.
+## Public product vs personal instance
 
-## 2. Requirements
+**Recommend this split. Do not mix personal memory into the public GitHub repo.**
 
-- Node.js 20 or newer, npm, and Git on `PATH`
-- An existing Git repository to manage
-- Optional Telegram bot token and OpenAI-compatible LLM credentials
+| | Public `archivist` | Personal instance |
+|---|---|---|
+| GitHub | This repo (software, prompts, docs) | Private repo *or* a local folder |
+| Contains | CLI, agents, schema, empty `memory/projects/` | `memory/projects/<your-apps>/`, SQLite, `.env` |
+| Who clones it | Anyone | Only you |
+| Updates | `git pull` | Pull software from public; commit memory privately |
 
-## 3. Install
+Two supported layouts:
 
-Windows PowerShell:
+### A. Simple clone (good for trying it)
 
-```powershell
-cd "C:\Users\USER\Downloads\Development Projects - Husaini\archivist"
-Copy-Item .env.example .env
-npm install
-npm run db:push
-npm run build
-```
-
-Unix:
+Clone the public product and run it in place. Memory and SQLite stay on disk in that clone. Do **not** push those files back to the public repo (`memory/projects/*/` and `data/*.db` are gitignored).
 
 ```bash
-cd /path/to/archivist
+git clone https://github.com/Husaini1999/archivist.git
+cd archivist
 cp .env.example .env
 npm install
-npm run db:push
+npx prisma db push
+npm test
 npm run build
+npx tsx src/cli/index.ts
 ```
 
-The default database is `data/archivist.db`; it is ignored by Git.
+### B. Personal history git (recommended for real use)
 
-## 4. Configuration and secrets
+Keep software and history in different Git repositories:
 
-All secrets come from environment variables. See `.env.example`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `ARCHIVIST_TIMEZONE`, `ARCHIVIST_PROJECT_ROOTS`, `ARCHIVIST_HOME`, `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `APPROVAL_TTL_HOURS`, and `SCHEDULER_CATCH_UP`. Never commit `.env`.
-
-## 5. Registering projects
-
-From a target repository:
-
-```bash
-npx tsx /path/to/archivist/src/cli/index.ts init
+```text
+~/archivist/            ← clone of the public product (pull updates here)
+~/archivist-home/       ← private git repo (memory + optional DB backups)
 ```
 
-Or centrally:
+```bash
+git clone https://github.com/Husaini1999/archivist.git ~/archivist
+git init ~/archivist-home
+mkdir -p ~/archivist-home/memory/projects ~/archivist-home/data
+```
+
+In `~/archivist/.env`:
+
+```env
+ARCHIVIST_HOME=/absolute/path/to/archivist-home
+```
+
+Leave `DATABASE_URL` as the example value (or unset it). The Node app stores SQLite at `$ARCHIVIST_HOME/data/archivist.db`. Prompts still load from the software clone. Memory files go to `$ARCHIVIST_HOME/memory/projects/<slug>/`.
+
+Then create a **private** GitHub repo for `archivist-home` and push that — not the public product. After a work session, review memory files and commit them there (Archivist still requires human approval before privileged git commit/push).
+
+Do **not** `git clone` the public repo *into* the personal memory repo as a nested copy. Point `ARCHIVIST_HOME` at the personal repo instead.
+
+## Status
+
+This is a working MVP: CLI, Prisma/SQLite, discovery, memory, heuristic and OpenAI-compatible analysis, agent runtime, 08:00 scheduler, Telegram approvals, privileged Git boundary, and tests. Implementation of source changes needs an LLM key. Offline analyze/suggest still works and is labeled heuristic.
+
+It is complete enough to clone and run as above. It is **not** a polished SaaS: catch-up after downtime, automatic external-change import, and dedicated push-approval UX are still follow-ups.
+
+## Requirements
+
+- Node.js 20+, npm, Git on `PATH`
+- Optional Telegram bot token and OpenAI-compatible LLM credentials
+- Existing Git repositories you want Archivist to manage (targets stay separate Git repos)
+
+## Configuration
+
+Copy `.env.example` to `.env`. Never commit `.env`.
+
+| Variable | Purpose |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Bot API token |
+| `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated numeric user IDs; others are denied |
+| `ARCHIVIST_TIMEZONE` | Default `Asia/Kuala_Lumpur` |
+| `ARCHIVIST_PROJECT_ROOTS` | Comma-separated directories to scan for Git repos |
+| `ARCHIVIST_HOME` | Personal instance root (memory + DB). Empty = this clone |
+| `DATABASE_URL` | Prisma CLI URL. Node overrides to `$ARCHIVIST_HOME/data/archivist.db` when left as the example |
+| `LLM_*` | OpenAI-compatible provider |
+| `APPROVAL_TTL_HOURS` | Default 48 |
+| `SCHEDULER_CATCH_UP` | Setting exists; this MVP does not reconstruct missed days after a crash |
+
+## Registering target projects
+
+From a **target** repository (not from Archivist itself):
 
 ```bash
-archivist --repo /path/to/repository init
+npx tsx /path/to/archivist/src/cli/index.ts --repo /path/to/target init
+```
+
+Or after linking the binary:
+
+```bash
+archivist --repo /path/to/target init
 archivist projects
 archivist projects scan
 ```
 
-Scanning reads comma-separated `ARCHIVIST_PROJECT_ROOTS`, examines immediate child directories, resolves real paths, deduplicates repositories, skips invalid directories, and skips Archivist itself.
+`init` does **not** write `.archivist/` into the target. Memory is created under `ARCHIVIST_HOME/memory/projects/<slug>/`.
 
-## 6. CLI
-
-The source CLI is `npx tsx src/cli/index.ts`; after build use `node dist/src/cli/index.js` or the installed `archivist` binary. Commands:
+## CLI
 
 ```text
 archivist
@@ -84,18 +129,12 @@ archivist resume
 archivist daemon
 ```
 
-Use `--project <slug-or-name>`, `--repo <path>`, and `--json`. Git root discovery walks upward from the current directory.
+`--project <slug-or-name>`, `--repo <path>`, `--json` are supported.
 
-## 7. Multiple-project registry
-
-`Project` stores name, slug, canonical Git root, branch, detected technology, metadata, automation flags, timestamps, last known commit, and memory identity. Projects are isolated by ID and memory slug. Automatic daily work only considers enabled, unpaused projects.
-
-## 8. Project memory
-
-Memory is stored only under:
+## Memory
 
 ```text
-memory/projects/<slug>/
+$ARCHIVIST_HOME/memory/projects/<slug>/
   profile.md
   architecture.md
   decisions.md
@@ -104,58 +143,34 @@ memory/projects/<slug>/
   history/YYYY-MM-DD.md
 ```
 
-Archivist does not create `.archivist` in target repositories. Memory contains summaries, paths, and evidence—not source copies or full diffs. Secret-like values are redacted. History supports Analysis, Recommendation, Decision, Implementation, Validation, Git, and Learning sections.
+Summaries, paths, and evidence only. Secrets are redacted. Full source copies and full diffs are not stored.
 
-## 9. Daily scheduler
+## Daily 08:00 and Telegram
 
-The default schedule is 08:00 in `Asia/Kuala_Lumpur`. `archivist daily` runs once immediately; `archivist daemon` starts cron and Telegram polling. `(projectId, dateKey)` is unique, preventing duplicate daily runs. Failures are recorded and do not result in duplicate sends. Catch-up is configurable; this MVP exposes the setting and normal manual `daily` invocation, but does not infer downtime across machine restarts.
+`archivist daily` runs once. `archivist daemon` starts cron (08:00 in the configured timezone) and Telegram polling.
 
-## 10. Telegram
+Only projects with `autoImproveEnabled=true` and `paused=false` participate. `(projectId, dateKey)` is unique so a restart does not double-send.
 
-Set a bot token and comma-separated numeric allowlist. The first allowlisted ID is used as the default private chat destination. Supported commands are `/projects`, `/enable <project>`, `/disable <project>`, `/now <project>`, `/status`, `/history <project>`, `/pause [project]`, and `/resume [project]`.
+Allowlisted Telegram users can `/projects`, `/enable`, `/disable`, `/now`, `/status`, `/history`, `/pause`, `/resume`. Approval buttons use short server-side tokens (not trusted payloads). Unauthorized users are denied.
 
-Morning proposals include concise evidence and explicitly qualitative estimated impact, effort, risk, and confidence. Buttons use short database callback tokens and stay below Telegram's 64-byte limit. Tokens bind to a project and proposal/task, expire (48 hours by default), are single-use, and require an allowlisted user.
+Automatic improvement means: morning suggestion → human approve → agents implement. It never means automatic commit or push.
 
-## 11. Approval lifecycle
+## Git safety
 
-Proposal approval creates an approved task. If paused, it remains queued; resume does not execute it automatically. `archivist work` starts the oldest approved task. Successful implementation becomes `AWAITING_COMMIT` and creates a separate commit approval. Declining leaves changes and the AI branch intact. Push requires its own `PUSH` approval and is never automatic.
+Structural, not prompt-only:
 
-## 12. Programmatic Git safety
+- Agent tools omit `gitCommit` and `gitPush`
+- `runCommand` denies git commit/push
+- File tools cannot leave the target repository
+- `PrivilegedGitService` requires a valid, unexpired, already-approved record
 
-Safety is structural, not prompt-only:
+Agents work on `ai/task-<id>-<slug>` and must not edit `main`/`master` in place.
 
-- `src/tools/registry.ts` constructs the agent registry and physically omits `gitCommit` and `gitPush`.
-- `runCommand` accepts argv arrays, permits selected development executables, and denies Git commit/push and dangerous shell/system commands.
-- File tools resolve real paths and require them to remain under the target repository.
-- `src/git/git.ts` owns `PrivilegedGitService`; `commit` and `push` require a matching, unexpired, already-approved database record.
-- Agent prompts also reinforce the boundary, but prompts are not the security control.
-- Tests prove absent tools, restricted command denial, path containment, and approval enforcement.
+## Agents
 
-## 13. Agent team
+Handbooks in `prompts/`: Lead, Product, UX, Frontend, Backend, QA, Reviewer. Runtime: allowlisted tools only, 12-iteration cap, timeout, Zod-validated output. No eval of model-generated code.
 
-Handbooks live in `prompts/`: Lead/PM, Product, UX, Frontend, Backend, QA, and Reviewer. The runtime exposes only its injected allowlist, limits tool iterations to 12, applies an overall timeout, returns tool errors to the loop, and validates final structured output with Zod. It never evaluates generated code or arbitrary tool names.
-
-## 14. LLM providers and offline mode
-
-`LLMProvider.chat` abstracts model access. `OpenAICompatibleProvider` uses standard chat-completions HTTP, while `MockLLMProvider` supports deterministic tests. Without credentials, Archivist inspects repository metadata, tests, status, and TODO/FIXME evidence and labels recommendations heuristic. Actual source implementation requires an LLM configuration.
-
-## 15. Implementation workflow
-
-Approved work runs on `ai/task-<id>-<slug>`. Archivist refuses to execute paused projects, invokes Lead, implementation, QA, and Reviewer roles, records each `AgentRun`, captures diff stats, updates memory, and reports that no commit has been made. Agents follow existing project conventions and can read/edit/test/build/review but cannot commit or push.
-
-## 16. Learning and external changes
-
-The schema includes sessions, proposals and fingerprints, accepted/rejected status, tasks, agent runs, external changes, Git operations, and audit logs. Exact pending or rejected recommendation fingerprints are suppressed. `ExternalChange` supports recording human commits detected between sessions; richer attribution and automatic import are an MVP follow-up.
-
-## 17. Pause and project management
-
-Global and per-project pause states persist in SQLite. Paused projects are skipped by the scheduler and work runner. Enable/disable controls daily suggestions independently from pause. Resume is non-destructive and does not launch queued work.
-
-## 18. Database and state
-
-The Prisma schema defines `Project`, `Session`, `DailyRun`, `Proposal`, `Task`, `AgentRun`, `Approval`, `GitOperation`, `ScheduleSettings`, `ExternalChange`, `AuditLog`, and `TelegramMessage`. Run `npm run prisma:generate` after schema changes and `npm run db:push` for local MVP deployment. Production upgrades should use checked-in Prisma migrations and backups.
-
-## 19. Testing and operations
+## Testing and ops
 
 ```bash
 npm test
@@ -163,18 +178,17 @@ npm run typecheck
 npm run build
 ```
 
-Tests use temporary Git repositories and cover Git-root walking, technology detection, command/path security, privileged approval requirements, memory isolation/redaction/history, timezone date keys, Telegram parsing, agent tools and structured output, proposal decisions, expiration, and unauthorized users.
+Long-running:
 
-For long-running deployment:
+- PM2: `pm2 start dist/cli/index.js --name archivist -- daemon`
+- systemd / NSSM: `node dist/cli/index.js daemon` with `WorkingDirectory` and `EnvironmentFile`
 
-- PM2: `pm2 start dist/src/cli/index.js --name archivist -- daemon`
-- systemd: create a service with `WorkingDirectory`, `EnvironmentFile`, and `ExecStart=/usr/bin/node .../dist/src/cli/index.js daemon`
-- Windows NSSM: install `node.exe` as the application, set startup directory to this repository, and arguments to `dist/src/cli/index.js daemon`
+One daemon per database. Restrict permissions on `.env`, `data/`, and `ARCHIVIST_HOME`.
 
-Use one daemon instance per database. Restrict filesystem permissions on `.env`, `data`, and the repository.
+## Security limitations
 
-## 20. MVP decisions and future improvements
+This MVP is a local operator tool. It is not a multi-tenant cloud. Anyone with filesystem access to the instance can read memory and the database. Keep the personal instance private. Do not expose the Telegram bot to the public internet without the allowlist. LLM providers receive repository excerpts you analyze; do not register secret-bearing repos without redaction review.
 
-The MVP deliberately uses SQLite, immediate-child root scanning, one OpenAI-compatible HTTP adapter, a compact sequential agent team, and private-chat delivery. Next steps: checked-in migrations, robust catch-up startup logic, automatic external-change ingestion/attribution, a dedicated push-approval UX, richer Telegram implementation reports and project buttons, per-role tool policies, sandboxed process isolation, retry/backoff and telemetry, memory-commit CLI UX, patch conflict recovery, additional technology-specific validators, and end-to-end bot tests against a disposable Telegram environment.
+## License
 
-No target code or Archivist memory is committed or pushed automatically.
+MIT. See `LICENSE`.

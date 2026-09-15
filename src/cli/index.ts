@@ -16,7 +16,7 @@ const config = loadConfig(), prisma = db();
 const cliUsers = new Set([...config.allowedUserIds, "cli"]);
 const approvals = new ApprovalService(prisma, cliUsers, config.approvalTtlHours);
 const llm = config.llm.apiKey && config.llm.model ? new OpenAICompatibleProvider(config.llm.baseUrl, config.llm.apiKey, config.llm.model) : undefined;
-const orchestrator = new ArchivistOrchestrator(prisma, config.home, approvals, llm);
+const orchestrator = new ArchivistOrchestrator(prisma, config.home, approvals, llm, config.softwareRoot);
 const output = (value: unknown, json = false) => console.log(json ? JSON.stringify(value, null, 2) : typeof value === "string" ? value : JSON.stringify(value, null, 2));
 
 async function selected(options: { repo?: string; project?: string }) {

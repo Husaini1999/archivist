@@ -2,6 +2,12 @@
   "name": "archivist",
   "version": "0.1.0",
   "private": true,
+  "description": "Human-governed AI software team for multiple Git repositories",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Husaini1999/archivist.git"
+  },
+  "license": "MIT",
   "type": "module",
   "bin": { "archivist": "dist/cli/index.js" },
   "scripts": {

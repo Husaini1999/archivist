@@ -1,10 +1,10 @@
 import "dotenv/config";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const defaultHome = path.resolve(here, "../../..");
 
 const schema = z.object({
   TELEGRAM_BOT_TOKEN: z.string().optional(),
@@ -12,7 +12,7 @@ const schema = z.object({
   ARCHIVIST_TIMEZONE: z.string().default("Asia/Kuala_Lumpur"),
   ARCHIVIST_PROJECT_ROOTS: z.string().default(""),
   ARCHIVIST_HOME: z.string().optional(),
-  DATABASE_URL: z.string().default("file:../data/archivist.db"),
+  DATABASE_URL: z.string().optional(),
   LLM_PROVIDER: z.string().default("openai-compatible"),
   LLM_API_KEY: z.string().optional(),
   LLM_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
@@ -21,12 +21,45 @@ const schema = z.object({
   SCHEDULER_CATCH_UP: z.string().default("true")
 });
 
+/** Walk up from a file location until package.json name is "archivist". */
+export function findSoftwareRoot(startDir: string = here): string {
+  let current = path.resolve(startDir);
+  while (true) {
+    const pkgPath = path.join(current, "package.json");
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as { name?: string };
+      if (pkg.name === "archivist") return current;
+    } catch {
+      /* keep walking */
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      throw new Error("Could not locate the Archivist software root (package.json name \"archivist\"). Set ARCHIVIST_HOME.");
+    }
+    current = parent;
+  }
+}
+
+function toSqliteUrl(filePath: string): string {
+  return `file:${path.resolve(filePath).replace(/\\/g, "/")}`;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env) {
   const value = schema.parse(env);
-  const home = path.resolve(value.ARCHIVIST_HOME ?? defaultHome);
+  const softwareRoot = findSoftwareRoot();
+  const home = path.resolve(value.ARCHIVIST_HOME?.trim() || softwareRoot);
+  const dataDir = path.join(home, "data");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(path.join(home, "memory", "projects"), { recursive: true });
+  const defaultPrismaUrl = "file:../data/archivist.db";
+  const databaseUrl = value.DATABASE_URL && value.DATABASE_URL !== defaultPrismaUrl
+    ? value.DATABASE_URL
+    : toSqliteUrl(path.join(dataDir, "archivist.db"));
+  if (env === process.env) process.env.DATABASE_URL = databaseUrl;
   return {
+    softwareRoot,
     home,
-    databaseUrl: value.DATABASE_URL,
+    databaseUrl,
     telegramToken: value.TELEGRAM_BOT_TOKEN,
     allowedUserIds: new Set(value.TELEGRAM_ALLOWED_USER_IDS.split(",").map(x => x.trim()).filter(Boolean)),
     timezone: value.ARCHIVIST_TIMEZONE,

@@ -15,7 +15,13 @@ export function dateKey(date: Date, timezone: string): string {
 
 export class ArchivistOrchestrator {
   private readonly memory: MemoryService;
-  constructor(private readonly prisma: PrismaClient, private readonly home: string, private readonly approvals: ApprovalService, private readonly llm?: LLMProvider) {
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly home: string,
+    private readonly approvals: ApprovalService,
+    private readonly llm?: LLMProvider,
+    private readonly softwareRoot: string = home
+  ) {
     this.memory = new MemoryService(home);
   }
 
@@ -67,7 +73,7 @@ export class ArchivistOrchestrator {
     if (["main", "master"].includes(current)) await git(project.gitRoot, ["switch", "-c", branch]);
     await this.prisma.task.update({ where: { id: task.id }, data: { status: "RUNNING", branch } });
     if (!this.llm) throw new Error("LLM key required for implementation; analysis remains available offline");
-    const runtime = new AgentRuntime(this.llm, createAgentTools(project.gitRoot), path.join(this.home, "prompts"));
+    const runtime = new AgentRuntime(this.llm, createAgentTools(project.gitRoot), path.join(this.softwareRoot, "prompts"));
     for (const role of ["lead", "backend", "qa", "reviewer"] as AgentRole[]) {
       const run = await this.prisma.agentRun.create({ data: { taskId: task.id, role, status: "RUNNING" } });
       try {

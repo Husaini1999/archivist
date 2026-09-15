@@ -73,6 +73,16 @@ describe("scheduler and telegram helpers", () => {
   });
 });
 
+describe("software root detection", () => {
+  it("walks up from nested folders to package.json name archivist", async () => {
+    const { findSoftwareRoot } = await import("../src/config/index.js");
+    const nested = path.join(root, "src", "config");
+    await fs.mkdir(nested, { recursive: true });
+    await fs.writeFile(path.join(root, "package.json"), JSON.stringify({ name: "archivist" }));
+    expect(findSoftwareRoot(nested)).toBe(path.resolve(root));
+  });
+});
+
 describe("agent runtime", () => {
   it("executes allowed tools and validates output", async () => {
     const promptRoot = path.join(root, "prompts"); await fs.mkdir(promptRoot); await fs.writeFile(path.join(promptRoot, "qa.md"), "QA");
