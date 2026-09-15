@@ -1,3 +1,5 @@
+import { dailyScheduleLine, groupProjects } from "../scheduler/clock.js";
+
 export function toBullets(text: string, maxItems = 3, maxChars = 140): string[] {
   const raw = String(text ?? "").replace(/\r/g, "").trim();
   if (!raw) return [];
@@ -116,6 +118,16 @@ export function formatProposalDetails(p: { title: string; summary: string; evide
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+const HISTORY_EMOJI: Record<string, string> = {
+  "What changed": "🛠",
+  Outcome: "🏁",
+  "Pull request": "🔗",
+  Recommendations: "💡",
+  Problems: "⚠️",
+  Declined: "❌",
+  Analysis: "🔍"
+};
+
 export function formatHistoryDate(iso: string) {
   const [year, month, day] = iso.split("-").map(Number);
   if (!year || !month || !day) return iso;
@@ -133,11 +145,58 @@ export function formatProjectHistory(slug: string, days: { date: string; events:
   }
   const blocks = [`📁 <b>${escapeHtml(slug)}</b>`];
   for (const day of days.slice(0, 8)) {
-    blocks.push(`\n<b>${escapeHtml(formatHistoryDate(day.date))}</b>`);
+    blocks.push("", `📅 <b>${escapeHtml(formatHistoryDate(day.date))}</b>`);
     for (const event of day.events) {
-      blocks.push(`\n<b>${escapeHtml(event.title)}</b>`);
-      for (const line of event.lines.slice(0, 12)) blocks.push(`    ${escapeHtml(line)}`);
+      const emoji = HISTORY_EMOJI[event.title] ?? "•";
+      blocks.push("", `${emoji} <b>${escapeHtml(event.title)}</b>`);
+      for (const line of event.lines.slice(0, 12)) {
+        const body = event.title === "What changed" ? `<code>${escapeHtml(line)}</code>` : escapeHtml(line);
+        blocks.push(`- ${body}`);
+      }
     }
   }
   return blocks.join("\n");
+}
+
+export function formatProjectsList(projects: { slug: string; paused?: boolean; autoImproveEnabled?: boolean }[], timezone: string) {
+  if (!projects.length) return "No projects registered. Run <code>archivist projects scan</code> on your PC.";
+  const { enabled, off, paused } = groupProjects(projects);
+  const blocks = [
+    "📁 <b>Projects</b>",
+    "",
+    "📅 <b>Daily agent recs</b>",
+    `- ${escapeHtml(dailyScheduleLine(timezone))}`,
+    "- Enabled projects get recommendations from agents at this time."
+  ];
+  const add = (emoji: string, title: string, slugs: { slug: string }[]) => {
+    if (!slugs.length) return;
+    blocks.push("", `${emoji} <b>${escapeHtml(title)}</b>`);
+    for (const project of slugs) blocks.push(`- ${escapeHtml(project.slug)}`);
+  };
+  if (enabled.length) add("✅", "Enabled", enabled);
+  else {
+    blocks.push("", "⚪ <b>None enabled yet</b>");
+    blocks.push("- Use /enable {project} to include it in the daily run.");
+  }
+  add("⚪", "Off", off);
+  add("⏸", "Paused", paused);
+  blocks.push("", "<i>Tap a project below.</i>");
+  return blocks.join("\n");
+}
+
+export function formatEnableReply(slug: string, enabled: boolean, timezone: string) {
+  if (enabled) {
+    return [
+      `✅ <b>${escapeHtml(slug)}</b> is enabled`,
+      "",
+      "📅 Daily agent recs",
+      `- ${escapeHtml(dailyScheduleLine(timezone))}`,
+      "- This project will get recommendations from agents at that time."
+    ].join("\n");
+  }
+  return [
+    `⚪ <b>${escapeHtml(slug)}</b> is off`,
+    "",
+    "- It will not get the daily agent recs."
+  ].join("\n");
 }

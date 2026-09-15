@@ -120,8 +120,12 @@ Enhance Resume Import Error Handling
     expect(events.map(event => event.title)).toEqual(["What changed", "Outcome", "Recommendations", "Problems"]);
     expect(events.find(event => event.title === "What changed")?.lines).toContain("frontend/src/components/ResumeImportModal.jsx  +29 −0");
     const html = formatProjectHistory("ats-resumebuilder", [{ date: "2026-09-15", events }]);
-    expect(html).toContain("<b>15 Sep 2026</b>");
-    expect(html).toContain("<b>What changed</b>");
+    expect(html).toContain("📅 <b>15 Sep 2026</b>");
+    expect(html).toContain("🛠 <b>What changed</b>");
+    expect(html).toContain("- <code>frontend/src/pages/ResumeBuilder.jsx  +18 −1</code>");
+    expect(html).toContain("💡 <b>Recommendations</b>");
+    expect(html).toContain("- Improve AI API Key Error Feedback");
+    expect(html).toContain("⚠️ <b>Problems</b>");
     expect(html).not.toContain("🌟 Features");
   });
 });
@@ -129,6 +133,32 @@ Enhance Resume Import Error Handling
 describe("scheduler and telegram helpers", () => {
   it("produces timezone-aware daily keys", () => {
     expect(dateKey(new Date("2026-09-14T16:30:00Z"), "Asia/Kuala_Lumpur")).toBe("2026-09-15");
+  });
+  it("formats the daemon banner with schedule and enabled projects", async () => {
+    const { formatDaemonBanner, dailyScheduleLine } = await import("../src/scheduler/clock.js");
+    const { formatProjectsList, formatEnableReply } = await import("../src/telegram/format.js");
+    const line = dailyScheduleLine("Asia/Kuala_Lumpur");
+    expect(line).toContain("8:00 AM");
+    expect(line).toContain("Kuala Lumpur");
+    expect(line).toContain("UTC+8");
+    const banner = formatDaemonBanner([
+      { slug: "ats-resumebuilder", autoImproveEnabled: true, paused: false },
+      { slug: "husaini-dev-portfolio", autoImproveEnabled: false, paused: false }
+    ], "Asia/Kuala_Lumpur");
+    expect(banner).toContain("Archivist daemon is running");
+    expect(banner).not.toMatch(/running \(.*08:00/);
+    expect(banner).toContain("Daily agent recommendations");
+    expect(banner).toContain("    - ats-resumebuilder");
+    expect(banner).toContain("⚪  Off");
+    expect(banner).toContain("    - husaini-dev-portfolio");
+    const html = formatProjectsList([
+      { slug: "ats-resumebuilder", autoImproveEnabled: true, paused: false },
+      { slug: "other", autoImproveEnabled: false, paused: false }
+    ], "Asia/Kuala_Lumpur");
+    expect(html).toContain("✅ <b>Enabled</b>");
+    expect(html).toContain("- ats-resumebuilder");
+    expect(html).toContain("📅 <b>Daily agent recs</b>");
+    expect(formatEnableReply("ats-resumebuilder", true, "Asia/Kuala_Lumpur")).toContain("This project will get recommendations from agents");
   });
   it("parses commands and project names", () => {
     expect(parseProjectCommand("/pause@ArchivistBot Pokemon Store")).toEqual({ command: "pause", project: "Pokemon Store" });
@@ -246,7 +276,7 @@ describe("scheduler and telegram helpers", () => {
   });
   it("exposes the slash-command menu", async () => {
     const { BOT_COMMANDS } = await import("../src/telegram/bot.js");
-    expect(BOT_COMMANDS.map(c => c.command)).toEqual(["start", "projects", "status", "enable", "disable", "now", "history", "pause", "resume", "cancel"]);
+    expect(BOT_COMMANDS.map(c => c.command)).toEqual(["start", "projects", "enable", "disable", "now", "history", "pause", "resume", "cancel"]);
   });
 });
 

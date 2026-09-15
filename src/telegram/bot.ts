@@ -9,16 +9,15 @@ import { isCancelled } from "../cancel.js";
 import { redact } from "../security/redact.js";
 import { PrivilegedGitService } from "../git/git.js";
 import { commitMessage, commitSubject } from "../git/message.js";
-import { escapeHtml, formatFileDiff, formatImplementationReport, formatProjectHistory, formatProposalDetails, formatProposalList, formatProposalMessage } from "./format.js";
+import { escapeHtml, formatEnableReply, formatFileDiff, formatImplementationReport, formatProjectHistory, formatProjectsList, formatProposalDetails, formatProposalList, formatProposalMessage } from "./format.js";
 import { allDecided, buildPackKeyboard, parsePackCallback, setPackDecision, type RecPack } from "./pack.js";
 import { collectDiff, filePatch } from "../orchestrator/diff.js";
 
 export const BOT_COMMANDS = [
   { command: "start", description: "Show commands and how to use the bot" },
   { command: "projects", description: "List registered projects" },
-  { command: "status", description: "Same as /projects" },
-  { command: "enable", description: "Turn on 8am suggestions: /enable {project}" },
-  { command: "disable", description: "Turn off 8am suggestions: /disable {project}" },
+  { command: "enable", description: "Include a project in daily agent recs" },
+  { command: "disable", description: "Stop daily agent recs for a project" },
   { command: "now", description: "Suggest an improvement now: /now {project}" },
   { command: "history", description: "Recent sessions: /history {project}" },
   { command: "pause", description: "Pause a project or all automation" },
@@ -28,8 +27,8 @@ export const BOT_COMMANDS = [
 
 const HELP = `Archivist commands
 
-/projects — list projects on this machine (○ off, ✅ daily on, ⏸ paused)
-/enable {project} — 8am suggestions for that project
+/projects — list projects (✅ daily recs, ⚪ off, ⏸ paused)
+/enable {project} — include it in the daily 8:00 AM Kuala Lumpur (UTC+8) agent recs
 /disable {project}
 /now {project} — send a recommendation now
 /history {project}
@@ -121,7 +120,7 @@ export class TelegramService implements RecommendationSender {
   readonly bot: Bot;
   private readonly jobs = new Map<string, { id: string; abort: AbortController }>();
   private readonly packs = new Map<string, RecPack>();
-  constructor(token: string, private readonly prisma: PrismaClient, private readonly approvals: ApprovalService, private readonly orchestrator: ArchivistOrchestrator, private readonly allowed: Set<string>, private readonly chatId?: string) {
+  constructor(token: string, private readonly prisma: PrismaClient, private readonly approvals: ApprovalService, private readonly orchestrator: ArchivistOrchestrator, private readonly allowed: Set<string>, private readonly chatId?: string, private readonly timezone = "Asia/Kuala_Lumpur") {
     this.bot = new Bot(token);
     this.install();
   }
@@ -207,10 +206,10 @@ export class TelegramService implements RecommendationSender {
       if (this.cancelJob(ctx)) await ctx.reply("⏹ Cancelling the current run…");
       else await ctx.reply("Nothing is running.");
     });
-    this.bot.command(["projects", "status"], async ctx => {
+    this.bot.command("projects", async ctx => {
       const projects = await this.prisma.project.findMany({ orderBy: { name: "asc" } });
       if (!projects.length) { await ctx.reply("No projects registered. Run archivist projects scan on your PC."); return; }
-      await ctx.reply(projects.map(p => `${p.paused ? "⏸" : p.autoImproveEnabled ? "✅" : "○"} ${p.slug}`).join("\n") + "\n\nTap a project:", { reply_markup: buildProjectPicker(projects, "menu") });
+      await ctx.reply(formatProjectsList(projects, this.timezone), { parse_mode: "HTML", reply_markup: buildProjectPicker(projects, "menu") });
     });
     this.bot.command(["enable", "disable", "pause", "resume", "now", "history"], async ctx => {
       const parsed = parseProjectCommand(ctx.message?.text ?? "");
@@ -440,7 +439,7 @@ export class TelegramService implements RecommendationSender {
     const chatId = String(ctx.chat?.id ?? this.chatId ?? "");
     if (command === "enable" || command === "disable") {
       void this.prisma.project.update({ where: { id: project.id }, data: { autoImproveEnabled: command === "enable" } })
-        .then(() => ctx.reply(command === "enable" ? `🟢 ${project.slug}: 8am suggestions are on.` : `⚪ ${project.slug}: 8am suggestions are off.`));
+        .then(() => ctx.reply(formatEnableReply(project.slug, command === "enable", this.timezone), { parse_mode: "HTML" }));
       return;
     }
     if (command === "pause" || command === "resume") {

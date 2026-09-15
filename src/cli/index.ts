@@ -11,6 +11,7 @@ import { ApprovalService } from "../approvals/approval.js";
 import { ArchivistOrchestrator } from "../orchestrator/archivist.js";
 import { OpenAICompatibleProvider } from "../integrations/llm.js";
 import { DailyScheduler, type RecommendationSender } from "../scheduler/scheduler.js";
+import { DAILY_HOUR, formatDaemonBanner } from "../scheduler/clock.js";
 import { TelegramService } from "../telegram/bot.js";
 
 const config = loadConfig(), prisma = db();
@@ -86,9 +87,10 @@ for (const action of ["pause", "resume"] as const) program.command(action).actio
 });
 program.command("daemon").action(async () => {
   if (!config.telegramToken) throw new Error("TELEGRAM_BOT_TOKEN is required");
-  const chatId = [...config.allowedUserIds][0], telegram = new TelegramService(config.telegramToken, prisma, approvals, orchestrator, config.allowedUserIds, chatId);
-  new DailyScheduler(prisma, orchestrator, telegram, config.timezone).start();
-  console.log(`Archivist daemon running (${config.timezone}, 08:00).`);
+  const chatId = [...config.allowedUserIds][0], telegram = new TelegramService(config.telegramToken, prisma, approvals, orchestrator, config.allowedUserIds, chatId, config.timezone);
+  new DailyScheduler(prisma, orchestrator, telegram, config.timezone).start(DAILY_HOUR);
+  const projects = await prisma.project.findMany({ orderBy: { slug: "asc" } });
+  console.log(formatDaemonBanner(projects, config.timezone, DAILY_HOUR));
   await telegram.start();
 });
 

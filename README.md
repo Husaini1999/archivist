@@ -151,7 +151,7 @@ Summaries, paths, and evidence only. Secrets are redacted. Full source copies an
 
 Only projects with `autoImproveEnabled=true` and `paused=false` participate. `(projectId, dateKey)` is unique so a restart does not double-send.
 
-Allowlisted Telegram users can `/projects`, `/enable`, `/disable`, `/now`, `/status`, `/history`, `/pause`, `/resume`. Approval buttons use short server-side tokens (not trusted payloads). Unauthorized users are denied.
+Allowlisted Telegram users can `/projects`, `/enable`, `/disable`, `/now`, `/history`, `/pause`, `/resume`. Approval buttons use short server-side tokens (not trusted payloads). Unauthorized users are denied.
 
 Automatic improvement means: morning suggestion → human selects recs → Apply → agents implement accepted recs on one branch from `main`/`master` → one approval opens a pull request. It never merges into production.
 

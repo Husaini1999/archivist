@@ -3,6 +3,7 @@ import cron from "node-cron";
 import type { PrismaClient } from "@prisma/client";
 import type { ArchivistOrchestrator } from "../orchestrator/archivist.js";
 import { dateKey } from "../orchestrator/archivist.js";
+import { DAILY_HOUR } from "../scheduler/clock.js";
 
 export interface RecommendationSender {
   sendProposal(projectName: string, proposal: { id: string; title: string; summary: string; evidence: string; expected: string }, token: string): Promise<string | undefined>
@@ -40,7 +41,7 @@ export class DailyScheduler {
     return { processed };
   }
 
-  start(hour = 8, minute = 0) {
+  start(hour = DAILY_HOUR, minute = 0) {
     return cron.schedule(`${minute} ${hour} * * *`, () => { void this.run(); }, { timezone: this.timezone });
   }
 }
