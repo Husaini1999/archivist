@@ -9,7 +9,9 @@
   },
   "license": "MIT",
   "type": "module",
-  "bin": { "archivist": "dist/cli/index.js" },
+  "bin": {
+    "archivist": "dist/cli/index.js"
+  },
   "scripts": {
     "dev": "tsx src/cli/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -19,13 +21,16 @@
     "db:push": "prisma db push",
     "postinstall": "prisma generate"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@prisma/client": "^6.15.0",
     "commander": "^14.0.0",
     "dotenv": "^17.2.2",
     "grammy": "^1.38.2",
     "node-cron": "^4.2.1",
+    "playwright-core": "^1.63.0",
     "zod": "^4.1.8"
   },
   "devDependencies": {

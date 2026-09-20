@@ -73,6 +73,7 @@ export function formatImplementationReport(projectName: string, report: {
   checks?: { name: string; status: string; excerpt?: string }[];
   testsPassed?: boolean;
   tested?: boolean;
+  readyForCommit?: boolean;
   notice?: string;
 }) {
   const files = report.files ?? [];
@@ -87,15 +88,15 @@ export function formatImplementationReport(projectName: string, report: {
     return `⚪ ${escapeHtml(check.name)} — skipped (${escapeHtml(why)})`;
   }).join("\n") || "⚪ No checks ran";
   const fileLines = files.slice(0, 20).map(file => `• <code>${escapeHtml(file.file)}</code>  <b>+${file.added}</b> −${file.deleted}`).join("\n") || "• No file changes";
-  const blocked = report.tested && report.testsPassed === false;
+  const blocked = report.readyForCommit === false || (report.readyForCommit !== true && report.tested && report.testsPassed === false);
   const warning = blocked
-    ? "Commit is blocked until tests pass. Nothing was pushed. Production was not changed."
+    ? "Commit is blocked until tests, build, and runtime checks pass. Nothing was pushed. Production was not changed."
     : `⚠️ WARNING: One approval commits all accepted work on this AI branch, pushes it, and opens a single pull request into ${base} (often production). It does NOT merge, deploy, or update ${base}. ${base} stays unchanged until you merge the PR on GitHub.`;
   return [
     `🛠 <b>${escapeHtml(projectName)}</b>`,
     `<b>Branch</b>\n<code>${escapeHtml(report.branch || "unknown")}</code> ← from <code>${escapeHtml(base)}</code>\n<i>Local only until you approve. GitHub cannot show an uncommitted or unpushed diff.</i>`,
     `<b>What changed</b>\n${toBullets(report.summary || "").map(item => `• ${escapeHtml(item)}`).join("\n") || "• See file list."}`,
-    `<b>Tests</b>\n${checkLine}`,
+    `<b>Checks</b>\n${checkLine}`,
     `<b>Diff</b>\n${fileLines}\n<b>+${report.added ?? 0}</b> −${report.deleted ?? 0}`,
     `<b>If you approve</b>\n${escapeHtml(warning)}`
   ].join("\n\n");

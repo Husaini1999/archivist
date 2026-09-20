@@ -39,7 +39,7 @@ function testCommand(script: string): { argv: string[]; env?: NodeJS.ProcessEnv 
   return { argv: ["npm", "test"] };
 }
 
-export async function runProjectChecks(root: string, signal?: AbortSignal): Promise<{ checks: CheckResult[]; testsPassed: boolean; tested: boolean }> {
+export async function runProjectChecks(root: string, signal?: AbortSignal): Promise<{ checks: CheckResult[]; testsPassed: boolean; tested: boolean; readyForCommit: boolean }> {
   const workspaces = await findWorkspaces(root);
   const checks: CheckResult[] = [];
   const withTests = workspaces.filter(pkg => pkg.scripts.test);
@@ -68,7 +68,16 @@ export async function runProjectChecks(root: string, signal?: AbortSignal): Prom
   }
   const tested = checks.some(check => check.name.startsWith("Tests") && check.status !== "skipped");
   const testsPassed = !checks.some(check => check.name.startsWith("Tests") && check.status === "failed");
-  return { checks, testsPassed, tested };
+  return { checks, testsPassed, tested, readyForCommit: !commitBlocked(checks) };
+}
+
+/** Tests, typecheck/build, and runtime smoke block commit. Lint noise does not. */
+export function commitBlocked(checks: CheckResult[]) {
+  return checks.some(check => check.status === "failed" && /^(Tests|Typecheck|Build|Runtime)\b/.test(check.name));
+}
+
+export function failedCheckSummary(checks: CheckResult[]) {
+  return checks.filter(check => check.status === "failed").map(check => `${check.name}:\n${check.excerpt}`).join("\n\n");
 }
 
 async function runCheck(cwd: string, name: string, argv: string[], signal?: AbortSignal, extraEnv?: NodeJS.ProcessEnv): Promise<CheckResult> {

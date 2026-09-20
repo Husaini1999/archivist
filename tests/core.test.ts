@@ -409,5 +409,55 @@ describe("diff and checks", () => {
     const result = await runProjectChecks(root);
     expect(result.tested).toBe(true);
     expect(result.checks.find(check => check.name.includes("Tests"))?.status).toBe("passed");
+    expect(result.readyForCommit).toBe(true);
+  });
+});
+
+describe("runtime smoke", () => {
+  it("detects browser apps, routes, and blocking checks", async () => {
+    const { isBrowserApp, isRuntimeNoise, guessRoutes, npmStartArgv, findDevApp, runRuntimeSmoke } = await import("../src/orchestrator/smoke.js");
+    const { commitBlocked } = await import("../src/orchestrator/validate.js");
+    expect(isBrowserApp({ start: "react-scripts start" })).toBe(true);
+    expect(isBrowserApp({ start: "node dist/cli.js" })).toBe(false);
+    expect(isRuntimeNoise("Download the React DevTools for a better development experience")).toBe(true);
+    expect(isRuntimeNoise("Uncaught TypeError: Cannot read properties of undefined")).toBe(false);
+    expect(guessRoutes(`<Route path="/resume" /><Route path="/builder/:id" />`)).toEqual(["/", "/resume", "/builder"]);
+    expect(npmStartArgv({ dev: "vite" }, 4173)).toEqual(["run", "dev", "--", "--host", "127.0.0.1", "--port", "4173"]);
+    expect((await runRuntimeSmoke(root)).status).toBe("skipped");
+    await fs.mkdir(path.join(root, "frontend"), { recursive: true });
+    await fs.writeFile(path.join(root, "frontend", "package.json"), JSON.stringify({ scripts: { start: "react-scripts start" } }));
+    expect((await findDevApp(root))?.label).toBe("frontend");
+    expect(commitBlocked([{ name: "Lint", status: "failed", excerpt: "style" }])).toBe(false);
+    expect(commitBlocked([{ name: "Runtime", status: "failed", excerpt: "TypeError" }])).toBe(true);
+    expect(commitBlocked([{ name: "Build (frontend)", status: "failed", excerpt: "Module not found" }])).toBe(true);
+  });
+  it("collects console and page errors from a local page", async () => {
+    const { collectPageErrors } = await import("../src/orchestrator/smoke.js");
+    const { createServer } = await import("node:http");
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "text/html" });
+      res.end(`<!doctype html><script>console.error("resume overlay boom"); throw new Error("resume overlay boom");</script>`);
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    const port = typeof addr === "object" && addr ? addr.port : 0;
+    try {
+      const result = await collectPageErrors([`http://127.0.0.1:${port}/`]);
+      if (result.skipped) return;
+      expect(result.errors.join("\n")).toMatch(/resume overlay boom/);
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+  it("blocks Open PR copy when runtime checks fail", async () => {
+    const { formatImplementationReport } = await import("../src/telegram/format.js");
+    const html = formatImplementationReport("ATS", {
+      branch: "ai/ats/x",
+      base: "main",
+      checks: [{ name: "Runtime", status: "failed", excerpt: "Uncaught TypeError: Cannot read properties of undefined" }],
+      readyForCommit: false
+    });
+    expect(html).toContain("Commit is blocked until tests, build, and runtime checks pass");
+    expect(html).toContain("❌ Runtime");
   });
 });

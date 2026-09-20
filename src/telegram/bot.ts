@@ -354,8 +354,8 @@ export class TelegramService implements RecommendationSender {
             await status.start("Committing, pushing, and opening a pull request…");
             const task = await this.prisma.task.findUnique({ where: { id: decided.taskId! }, include: { project: true, proposal: true } });
             if (!task) throw new Error("Task not found.");
-            const report = JSON.parse(task.reportJson || "{}") as { tested?: boolean; testsPassed?: boolean; branch?: string; base?: string; titles?: string[]; relatedTaskIds?: string[] };
-            if (report.tested && report.testsPassed === false) throw new Error("Tests failed; commit is blocked.");
+            const report = JSON.parse(task.reportJson || "{}") as { tested?: boolean; testsPassed?: boolean; readyForCommit?: boolean; branch?: string; base?: string; titles?: string[]; relatedTaskIds?: string[] };
+            if (report.readyForCommit === false || (report.tested && report.testsPassed === false)) throw new Error("Checks failed; commit is blocked.");
             const base = report.base || "main";
             const titles = report.titles?.length ? report.titles : [task.proposal.title];
             const published = await new PrivilegedGitService(this.prisma).publish(task.projectId, task.project.gitRoot, decided.id, {
@@ -411,7 +411,7 @@ export class TelegramService implements RecommendationSender {
       if (index % 2 === 1) keyboard.row();
     }
     keyboard.row().text("📋 Diff summary", `v:${taskId}`).row();
-    if (report.tested && report.testsPassed === false) {
+    if (report.readyForCommit === false || (report.tested && report.testsPassed === false)) {
       keyboard.text("❌ Decline", `d:${completed.approval.callbackToken}`);
     } else {
       keyboard.text("✅ Open PR (does not merge)", `a:${completed.approval.callbackToken}`).text("❌ Decline", `d:${completed.approval.callbackToken}`);
@@ -425,7 +425,8 @@ export class TelegramService implements RecommendationSender {
       deleted: report.deleted,
       checks: report.checks,
       testsPassed: report.testsPassed,
-      tested: report.tested
+      tested: report.tested,
+      readyForCommit: report.readyForCommit
     })), { reply_markup: keyboard, parse_mode: "HTML" });
   }
 

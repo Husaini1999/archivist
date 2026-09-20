@@ -12,7 +12,8 @@ import { isCancelled, throwIfAborted } from "../cancel.js";
 import { inspectRepository } from "./inspect.js";
 import { parseProposalList, SUGGEST_PROMPT } from "./proposal.js";
 import { collectDiff } from "./diff.js";
-import { runProjectChecks } from "./validate.js";
+import { runRuntimeSmoke } from "./smoke.js";
+import { commitBlocked, failedCheckSummary, runProjectChecks } from "./validate.js";
 
 export function firstLine(text: string, max = 180) {
   const line = String(text ?? "").replace(/\r/g, "").split("\n").map(part => part.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "").trim()).find(Boolean) ?? "";
@@ -161,41 +162,74 @@ export class ArchivistOrchestrator {
       throw error;
     }
     throwIfAborted(signal);
-    await onProgress?.("Running tests before PR approval…");
-    const validation = await runProjectChecks(project.gitRoot, signal);
+    try {
+      let verified = await this.verify(project.gitRoot, onProgress, signal);
+      for (let attempt = 1; !verified.readyForCommit && attempt <= 2; attempt++) {
+        throwIfAborted(signal);
+        const summary = failedCheckSummary(verified.checks) || "Checks failed.";
+        await onProgress?.(`Runtime/tests failed — asking the agent to fix (${attempt}/2)…`);
+        const fix = await this.prisma.agentRun.create({ data: { taskId: task.id, role: "backend", status: "RUNNING" } });
+        try {
+          const output = await runtime.run(
+            "backend",
+            `The last edits failed automated checks. Fix ONLY these errors with the smallest diffs. Do not add features. Never commit or push. Do not run tests.\n\n${summary.slice(0, 6000)}\n\nReturn JSON {"summary":"...","completed":true,"findings":[]}.`,
+            signal
+          );
+          await this.prisma.agentRun.update({ where: { id: fix.id }, data: { status: "SUCCEEDED", outputJson: JSON.stringify(output) } });
+        } catch (error) {
+          await this.prisma.agentRun.update({ where: { id: fix.id }, data: { status: "FAILED", error: String(error) } });
+          throw error;
+        }
+        verified = await this.verify(project.gitRoot, onProgress, signal);
+      }
+      const { diff, checks, testsPassed, tested, readyForCommit } = verified;
+      const titles = loaded.map(item => item.proposal.title);
+      const report = {
+        branch,
+        base,
+        changedFiles: diff.files,
+        added: diff.added,
+        deleted: diff.deleted,
+        shortstat: diff.shortstat,
+        checks,
+        testsPassed,
+        tested,
+        readyForCommit,
+        summary: loaded.map(item => item.proposal.summary).join("\n"),
+        titles,
+        relatedTaskIds: ids.slice(1),
+        notice: `No commit has been made. Approving will not merge into ${base}.`
+      };
+      const reportJson = JSON.stringify(report);
+      for (const id of ids) {
+        await this.prisma.task.update({ where: { id }, data: { status: "AWAITING_COMMIT", branch, reportJson } });
+      }
+      await this.note(project, "Implementation", "SUCCEEDED", `${titles.join("; ")} — ${diff.files.length} files, +${diff.added} −${diff.deleted}`, {
+        problems: loaded.map(item => firstLine(item.proposal.evidence)).filter(Boolean),
+        recommendations: loaded.map(item => [
+          item.proposal.title,
+          firstLine(item.proposal.evidence) ? `Problem: ${firstLine(item.proposal.evidence)}` : "",
+          firstLine(item.proposal.summary) ? `Change: ${firstLine(item.proposal.summary)}` : ""
+        ].filter(Boolean).join("\n")),
+        changes: diff.files.map(file => `${file.file}  +${file.added} −${file.deleted}`)
+      });
+      return { task: { ...task, branch }, report, approval: await this.approvals.create({ type: "COMMIT", projectId: project.id, taskId: task.id }) };
+    } catch (error) {
+      await this.prisma.task.updateMany({ where: { id: { in: ids } }, data: { status: isCancelled(error) ? "CANCELLED" : "FAILED" } });
+      throw error;
+    }
+  }
+
+  private async verify(root: string, onProgress?: ProgressFn, signal?: AbortSignal) {
+    await onProgress?.("Running tests, lint, and build…");
+    const validation = await runProjectChecks(root, signal);
     throwIfAborted(signal);
     await onProgress?.("Collecting the diff…");
-    const diff = await collectDiff(project.gitRoot);
-    const titles = loaded.map(item => item.proposal.title);
-    const report = {
-      branch,
-      base,
-      changedFiles: diff.files,
-      added: diff.added,
-      deleted: diff.deleted,
-      shortstat: diff.shortstat,
-      checks: validation.checks,
-      testsPassed: validation.testsPassed,
-      tested: validation.tested,
-      summary: loaded.map(item => item.proposal.summary).join("\n"),
-      titles,
-      relatedTaskIds: ids.slice(1),
-      notice: `No commit has been made. Approving will not merge into ${base}.`
-    };
-    const reportJson = JSON.stringify(report);
-    for (const id of ids) {
-      await this.prisma.task.update({ where: { id }, data: { status: "AWAITING_COMMIT", branch, reportJson } });
-    }
-    await this.note(project, "Implementation", "SUCCEEDED", `${titles.join("; ")} — ${diff.files.length} files, +${diff.added} −${diff.deleted}`, {
-      problems: loaded.map(item => firstLine(item.proposal.evidence)).filter(Boolean),
-      recommendations: loaded.map(item => [
-        item.proposal.title,
-        firstLine(item.proposal.evidence) ? `Problem: ${firstLine(item.proposal.evidence)}` : "",
-        firstLine(item.proposal.summary) ? `Change: ${firstLine(item.proposal.summary)}` : ""
-      ].filter(Boolean).join("\n")),
-      changes: diff.files.map(file => `${file.file}  +${file.added} −${file.deleted}`)
-    });
-    return { task: { ...task, branch }, report, approval: await this.approvals.create({ type: "COMMIT", projectId: project.id, taskId: task.id }) };
+    const diff = await collectDiff(root);
+    await onProgress?.("Starting the app to catch runtime/console errors…");
+    const smoke = await runRuntimeSmoke(root, diff.files.map(file => file.file), signal);
+    const checks = [...validation.checks, smoke];
+    return { diff, checks, testsPassed: validation.testsPassed, tested: validation.tested, readyForCommit: !commitBlocked(checks) };
   }
 
   async note(project: { id: string; slug: string }, kind: string, status: string, summary = "", log?: Partial<DayLog>) {
